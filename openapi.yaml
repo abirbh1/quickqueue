@@ -1,0 +1,345 @@
+openapi: 3.1.0
+info:
+  title: QuickQueue API
+  description: >
+    Restaurant waitlist manager API. Mirrors the contract already implemented
+    by the mocked frontend client (frontend/src/api/client.ts).
+  version: 0.1.0
+
+servers:
+  - url: /api
+
+paths:
+  /queue:
+    get:
+      summary: List waiting parties, in current queue order
+      operationId: getQueue
+      tags: [queue]
+      responses:
+        "200":
+          description: Waiting parties, ordered by queue position
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Party"
+
+  /seated:
+    get:
+      summary: List parties currently occupying a table
+      operationId: getSeated
+      tags: [queue]
+      responses:
+        "200":
+          description: Seated parties whose table has not been freed yet
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Party"
+
+  /wait-stats:
+    get:
+      summary: Rolling average wait time
+      operationId: getWaitStats
+      tags: [queue]
+      responses:
+        "200":
+          description: Current wait time statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitTimeStats"
+
+  /checkin:
+    post:
+      summary: Self-check-in a new party
+      operationId: checkIn
+      tags: [checkin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckInInput"
+      responses:
+        "201":
+          description: Party added to the queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckInResult"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /parties/{partyId}/seat:
+    post:
+      summary: Mark a waiting party as seated
+      operationId: seatParty
+      tags: [parties]
+      parameters:
+        - $ref: "#/components/parameters/PartyId"
+      responses:
+        "200":
+          description: Party marked as seated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Party"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /parties/{partyId}/free:
+    post:
+      summary: Free the table for a seated party (completes the turnover)
+      operationId: freeTable
+      tags: [parties]
+      parameters:
+        - $ref: "#/components/parameters/PartyId"
+      responses:
+        "200":
+          description: Table freed; turnover recorded for wait-time estimation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Party"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Party has not been seated yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /parties/{partyId}/cancel:
+    post:
+      summary: Cancel a waiting party
+      operationId: cancelParty
+      tags: [parties]
+      parameters:
+        - $ref: "#/components/parameters/PartyId"
+      responses:
+        "200":
+          description: Party marked as cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Party"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /parties/{partyId}/no-show:
+    post:
+      summary: Mark a waiting party as a no-show
+      operationId: markNoShow
+      tags: [parties]
+      parameters:
+        - $ref: "#/components/parameters/PartyId"
+      responses:
+        "200":
+          description: Party marked as no-show
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Party"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /parties/{partyId}/move-up:
+    post:
+      summary: Move a waiting party one position earlier in the queue
+      operationId: movePartyUp
+      tags: [parties]
+      parameters:
+        - $ref: "#/components/parameters/PartyId"
+      responses:
+        "204":
+          description: Position updated
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /parties/{partyId}/move-down:
+    post:
+      summary: Move a waiting party one position later in the queue
+      operationId: movePartyDown
+      tags: [parties]
+      parameters:
+        - $ref: "#/components/parameters/PartyId"
+      responses:
+        "204":
+          description: Position updated
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /reports:
+    get:
+      summary: Basic reporting summary
+      operationId: getReport
+      tags: [reports]
+      parameters:
+        - name: range
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ReportRange"
+            default: today
+      responses:
+        "200":
+          description: Report summary for the requested range
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSummary"
+
+components:
+  parameters:
+    PartyId:
+      name: partyId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    NotFound:
+      description: Party not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    PartyStatus:
+      type: string
+      enum: [waiting, seated, cancelled, no_show]
+
+    Party:
+      type: object
+      required:
+        - id
+        - name
+        - partySize
+        - checkInTime
+        - status
+        - seatedTime
+        - tableFreedTime
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        partySize:
+          type: integer
+          minimum: 1
+        checkInTime:
+          type: string
+          format: date-time
+        status:
+          $ref: "#/components/schemas/PartyStatus"
+        seatedTime:
+          type: string
+          format: date-time
+          nullable: true
+        tableFreedTime:
+          type: string
+          format: date-time
+          nullable: true
+
+    CheckInInput:
+      type: object
+      required:
+        - name
+        - partySize
+      properties:
+        name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+        partySize:
+          type: integer
+          minimum: 1
+
+    CheckInResult:
+      type: object
+      required:
+        - party
+        - position
+        - estimatedWaitMinutes
+      properties:
+        party:
+          $ref: "#/components/schemas/Party"
+        position:
+          type: integer
+          minimum: 1
+        estimatedWaitMinutes:
+          type: integer
+          minimum: 0
+
+    WaitTimeStats:
+      type: object
+      required:
+        - rollingAverageWaitMinutes
+        - lastUpdated
+      properties:
+        rollingAverageWaitMinutes:
+          type: number
+        lastUpdated:
+          type: string
+          format: date-time
+
+    ReportRange:
+      type: string
+      enum: [today, week]
+
+    PeakWindow:
+      type: object
+      required:
+        - hourLabel
+        - count
+      properties:
+        hourLabel:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+
+    ReportSummary:
+      type: object
+      required:
+        - range
+        - averageWaitMinutes
+        - totalPartiesServed
+        - peakWindows
+      properties:
+        range:
+          $ref: "#/components/schemas/ReportRange"
+        averageWaitMinutes:
+          type: number
+        totalPartiesServed:
+          type: integer
+          minimum: 0
+        peakWindows:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeakWindow"
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string

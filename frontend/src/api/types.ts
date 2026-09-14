@@ -3,7 +3,7 @@ export type PartyStatus = 'waiting' | 'seated' | 'cancelled' | 'no_show'
 export interface Party {
   id: string
   name: string
-  phone?: string
+  phone: string | null
   partySize: number
   checkInTime: string // ISO timestamp
   status: PartyStatus
